@@ -23,6 +23,261 @@ class KitapListesiModel {
   const KitapListesiModel({required this.baslik, required this.kitaplar});
 }
 
+// ----------------------------------------------------
+// RAF (SHELF) SİSTEMİ - My Books için
+// ----------------------------------------------------
+const Color kAnaRenk = Color(0xFF75420e);
+
+enum RafTuru { okumakIstiyorum, suAnOkuyorum, okudum }
+
+extension RafTuruEtiket on RafTuru {
+  String get etiket {
+    switch (this) {
+      case RafTuru.okumakIstiyorum:
+        return 'Want to Read';
+      case RafTuru.suAnOkuyorum:
+        return 'Currently Reading';
+      case RafTuru.okudum:
+        return 'Read';
+    }
+  }
+
+  String get kisaEtiket {
+    switch (this) {
+      case RafTuru.okumakIstiyorum:
+        return 'Want to Read';
+      case RafTuru.suAnOkuyorum:
+        return 'Reading';
+      case RafTuru.okudum:
+        return 'Read';
+    }
+  }
+
+  IconData get ikon {
+    switch (this) {
+      case RafTuru.okumakIstiyorum:
+        return Icons.bookmark_add_outlined;
+      case RafTuru.suAnOkuyorum:
+        return Icons.auto_stories_outlined;
+      case RafTuru.okudum:
+        return Icons.check_circle_outline;
+    }
+  }
+}
+
+class RafKaydi {
+  final KitapModel kitap;
+  RafTuru raf;
+  int puan; // 0 = puan yok, 1-5
+  double ilerleme; // 0.0 - 1.0
+
+  RafKaydi({
+    required this.kitap,
+    required this.raf,
+    this.puan = 0,
+    this.ilerleme = 0,
+  });
+}
+
+// Uygulama boyunca tek bir tane olan raf yöneticisi.
+// (Şimdilik sadece bellekte tutuluyor, uygulama kapanınca sıfırlanır.)
+class RafYoneticisi extends ChangeNotifier {
+  RafYoneticisi._();
+  static final RafYoneticisi instance = RafYoneticisi._();
+
+  final Map<String, RafKaydi> _kayitlar = {};
+
+  String _anahtar(KitapModel k) => '${k.baslik}|${k.yazar}';
+
+  RafKaydi? kayit(KitapModel k) => _kayitlar[_anahtar(k)];
+
+  // En son eklenen en üstte
+  List<RafKaydi> get hepsi => _kayitlar.values.toList().reversed.toList();
+
+  List<RafKaydi> rafta(RafTuru tur) =>
+      hepsi.where((k) => k.raf == tur).toList();
+
+  void rafaEkle(KitapModel k, RafTuru tur) {
+    final mevcut = kayit(k);
+    if (mevcut != null) {
+      mevcut.raf = tur;
+      if (tur == RafTuru.okudum) mevcut.ilerleme = 1;
+      if (tur == RafTuru.okumakIstiyorum) mevcut.ilerleme = 0;
+    } else {
+      _kayitlar[_anahtar(k)] = RafKaydi(
+        kitap: k,
+        raf: tur,
+        ilerleme: tur == RafTuru.okudum ? 1 : 0,
+      );
+    }
+    notifyListeners();
+  }
+
+  void cikar(KitapModel k) {
+    _kayitlar.remove(_anahtar(k));
+    notifyListeners();
+  }
+
+  void puanVer(KitapModel k, int puan) {
+    final mevcut = kayit(k);
+    if (mevcut == null) return;
+    mevcut.puan = puan;
+    notifyListeners();
+  }
+
+  void ilerlemeGuncelle(KitapModel k, double deger) {
+    final mevcut = kayit(k);
+    if (mevcut == null) return;
+    mevcut.ilerleme = deger;
+    if (deger >= 1) {
+      mevcut.raf = RafTuru.okudum;
+    }
+    notifyListeners();
+  }
+}
+
+// Kitap kapak resmi (bulunamazsa gri kutu gösterir)
+Widget kapakResmi(String yol, {double? genislik, double? yukseklik}) {
+  return Image.asset(
+    yol,
+    width: genislik,
+    height: yukseklik,
+    fit: BoxFit.cover,
+    errorBuilder: (context, error, stackTrace) {
+      return Container(
+        width: genislik,
+        height: yukseklik,
+        color: Colors.grey.shade300,
+        child: const Icon(Icons.broken_image, color: Colors.grey),
+      );
+    },
+  );
+}
+
+// Alttan açılan "rafa ekle" menüsü
+void rafSecimiGoster(BuildContext context, KitapModel kitap) {
+  showModalBottomSheet(
+    context: context,
+    backgroundColor: Colors.white,
+    shape: const RoundedRectangleBorder(
+      borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+    ),
+    builder: (sheetContext) {
+      final yonetici = RafYoneticisi.instance;
+      final mevcut = yonetici.kayit(kitap)?.raf;
+      return SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 12),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 4, 20, 0),
+                child: Text(
+                  kitap.baslik,
+                  style: const TextStyle(
+                    fontSize: 17,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 2, 20, 8),
+                child: Text(
+                  kitap.yazar,
+                  style: const TextStyle(fontSize: 14, color: Colors.grey),
+                ),
+              ),
+              const Divider(height: 1),
+              for (final raf in RafTuru.values)
+                ListTile(
+                  leading: Icon(raf.ikon, color: kAnaRenk),
+                  title: Text(raf.etiket),
+                  trailing: mevcut == raf
+                      ? const Icon(Icons.check, color: kAnaRenk)
+                      : null,
+                  onTap: () {
+                    yonetici.rafaEkle(kitap, raf);
+                    Navigator.pop(sheetContext);
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(content: Text('Added to "${raf.etiket}"')),
+                    );
+                  },
+                ),
+              if (mevcut != null)
+                ListTile(
+                  leading: const Icon(Icons.delete_outline, color: Colors.red),
+                  title: const Text(
+                    'Remove from My Books',
+                    style: TextStyle(color: Colors.red),
+                  ),
+                  onTap: () {
+                    yonetici.cikar(kitap);
+                    Navigator.pop(sheetContext);
+                  },
+                ),
+            ],
+          ),
+        ),
+      );
+    },
+  );
+}
+
+// Goodreads tarzı "Want to Read" butonu
+class RafButonu extends StatelessWidget {
+  final KitapModel kitap;
+
+  const RafButonu({super.key, required this.kitap});
+
+  @override
+  Widget build(BuildContext context) {
+    return ListenableBuilder(
+      listenable: RafYoneticisi.instance,
+      builder: (context, _) {
+        final mevcut = RafYoneticisi.instance.kayit(kitap)?.raf;
+        final rafta = mevcut != null;
+        return InkWell(
+          borderRadius: BorderRadius.circular(20),
+          onTap: () => rafSecimiGoster(context, kitap),
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+            decoration: BoxDecoration(
+              color: rafta ? Colors.white : kAnaRenk,
+              borderRadius: BorderRadius.circular(20),
+              border: Border.all(color: kAnaRenk),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                if (rafta) ...[
+                  const Icon(Icons.check, size: 15, color: kAnaRenk),
+                  const SizedBox(width: 4),
+                ],
+                Text(
+                  mevcut?.kisaEtiket ?? 'Want to Read',
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                    color: rafta ? kAnaRenk : Colors.white,
+                  ),
+                ),
+                const SizedBox(width: 2),
+                Icon(
+                  Icons.arrow_drop_down,
+                  size: 18,
+                  color: rafta ? kAnaRenk : Colors.white,
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+}
+
 class BookNestApp extends StatelessWidget {
   const BookNestApp({super.key});
 
@@ -49,6 +304,31 @@ class GoodreadsAnaSayfa extends StatefulWidget {
 
 class _GoodreadsAnaSayfaState extends State<GoodreadsAnaSayfa> {
   int _seciliSekme = 0;
+
+  // ---- ARAMA ----
+  final TextEditingController _aramaController = TextEditingController();
+  String _aramaMetni = '';
+
+  @override
+  void dispose() {
+    _aramaController.dispose();
+    super.dispose();
+  }
+
+  List<KitapModel> get _aramaSonuclari {
+    final sorgu = _aramaMetni.toLowerCase().trim();
+    final Map<String, KitapModel> benzersiz = {};
+    for (final liste in _anaSayfaListeleri) {
+      for (final kitap in liste.kitaplar) {
+        if (kitap.baslik.toLowerCase().contains(sorgu) ||
+            kitap.yazar.toLowerCase().contains(sorgu)) {
+          benzersiz['${kitap.baslik}|${kitap.yazar}'] = kitap;
+        }
+      }
+    }
+    return benzersiz.values.toList();
+  }
+  // ---- ARAMA SONU ----
 
   final List<KitapListesiModel> _anaSayfaListeleri = [
     KitapListesiModel(
@@ -198,15 +478,40 @@ class _GoodreadsAnaSayfaState extends State<GoodreadsAnaSayfa> {
               border: Border.all(color: Colors.grey.shade300),
             ),
             child: Row(
-              children: const [
-                Icon(Icons.search, color: Colors.grey),
-                SizedBox(width: 8),
-                Text(
-                  'Title, author or ISBN',
-                  style: TextStyle(color: Colors.grey, fontSize: 14),
+              children: [
+                const Icon(Icons.search, color: Colors.grey),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: TextField(
+                    controller: _aramaController,
+                    onChanged: (deger) {
+                      setState(() {
+                        _aramaMetni = deger;
+                      });
+                    },
+                    style: const TextStyle(fontSize: 14),
+                    decoration: const InputDecoration(
+                      hintText: 'Title, author or ISBN',
+                      hintStyle: TextStyle(color: Colors.grey, fontSize: 14),
+                      border: InputBorder.none,
+                      isDense: true,
+                      contentPadding: EdgeInsets.zero,
+                    ),
+                  ),
                 ),
-                Spacer(),
-                Icon(Icons.camera_alt_outlined, color: Colors.grey),
+                if (_aramaMetni.isNotEmpty)
+                  GestureDetector(
+                    onTap: () {
+                      _aramaController.clear();
+                      setState(() {
+                        _aramaMetni = '';
+                      });
+                      FocusScope.of(context).unfocus();
+                    },
+                    child: const Icon(Icons.close, color: Colors.grey),
+                  )
+                else
+                  const Icon(Icons.camera_alt_outlined, color: Colors.grey),
               ],
             ),
           ),
@@ -218,7 +523,12 @@ class _GoodreadsAnaSayfaState extends State<GoodreadsAnaSayfa> {
           ],
         ),
       ),
-      body: _sayfalar[_seciliSekme],
+      body: _aramaMetni.trim().isNotEmpty
+          ? AramaSonuclariSayfasi(
+              sonuclar: _aramaSonuclari,
+              sorgu: _aramaMetni.trim(),
+            )
+          : _sayfalar[_seciliSekme],
       bottomNavigationBar: NavigationBar(
         backgroundColor: Colors.white,
         selectedIndex: _seciliSekme,
@@ -317,7 +627,9 @@ class AnaSayfaIcerigi extends StatelessWidget {
                 itemCount: listeModel.kitaplar.length,
                 itemBuilder: (context, kitapIndex) {
                   final kitap = listeModel.kitaplar[kitapIndex];
-                  return Container(
+                  return GestureDetector(
+                    onTap: () => rafSecimiGoster(context, kitap),
+                    child: Container(
                     width: 120,
                     margin: const EdgeInsets.symmetric(horizontal: 6),
                     child: Column(
@@ -365,6 +677,7 @@ class AnaSayfaIcerigi extends StatelessWidget {
                         ),
                       ],
                     ),
+                    ),
                   );
                 },
               ),
@@ -376,16 +689,327 @@ class AnaSayfaIcerigi extends StatelessWidget {
   }
 }
 
-class MyBooksPage extends StatelessWidget {
+class MyBooksPage extends StatefulWidget {
   const MyBooksPage({super.key});
 
   @override
+  State<MyBooksPage> createState() => _MyBooksPageState();
+}
+
+class _MyBooksPageState extends State<MyBooksPage> {
+  RafTuru? _filtre; // null = hepsi
+
+  @override
   Widget build(BuildContext context) {
-    return const Center(
-      child: Text(
-        'My Books Page',
-        style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+    return ListenableBuilder(
+      listenable: RafYoneticisi.instance,
+      builder: (context, _) {
+        final yonetici = RafYoneticisi.instance;
+        final liste =
+            _filtre == null ? yonetici.hepsi : yonetici.rafta(_filtre!);
+
+        return Column(
+          children: [
+            _buildBaslik(yonetici),
+            _buildFiltreler(yonetici),
+            const Divider(height: 1),
+            Expanded(
+              child: liste.isEmpty
+                  ? _buildBos()
+                  : ListView.builder(
+                      padding: const EdgeInsets.all(16),
+                      itemCount: liste.length,
+                      itemBuilder: (context, index) =>
+                          _buildKitapKarti(liste[index]),
+                    ),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  Widget _buildBaslik(RafYoneticisi yonetici) {
+    final okunan = yonetici.rafta(RafTuru.okudum).length;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          const Text(
+            'My Books',
+            style: TextStyle(
+              fontSize: 24,
+              fontWeight: FontWeight.bold,
+              color: Colors.black87,
+            ),
+          ),
+          Text(
+            '$okunan read',
+            style: const TextStyle(fontSize: 14, color: Colors.grey),
+          ),
+        ],
       ),
+    );
+  }
+
+  Widget _buildFiltreler(RafYoneticisi yonetici) {
+    Widget chip(String etiket, int sayi, RafTuru? tur) {
+      final secili = _filtre == tur;
+      return Padding(
+        padding: const EdgeInsets.only(right: 8),
+        child: ChoiceChip(
+          label: Text('$etiket ($sayi)'),
+          selected: secili,
+          showCheckmark: false,
+          selectedColor: kAnaRenk,
+          backgroundColor: Colors.white,
+          side: const BorderSide(color: kAnaRenk),
+          labelStyle: TextStyle(
+            fontSize: 13,
+            color: secili ? Colors.white : kAnaRenk,
+            fontWeight: FontWeight.w600,
+          ),
+          onSelected: (_) {
+            setState(() {
+              _filtre = tur;
+            });
+          },
+        ),
+      );
+    }
+
+    return SizedBox(
+      height: 52,
+      child: ListView(
+        scrollDirection: Axis.horizontal,
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+        children: [
+          chip('All', yonetici.hepsi.length, null),
+          for (final tur in RafTuru.values)
+            chip(tur.etiket, yonetici.rafta(tur).length, tur),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildBos() {
+    final mesaj = _filtre == null
+        ? 'Your shelves are empty'
+        : 'No books on "${_filtre!.etiket}" yet';
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(32),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(Icons.menu_book_outlined, size: 64, color: Colors.grey),
+            const SizedBox(height: 12),
+            Text(
+              mesaj,
+              style: const TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.bold,
+                color: Colors.black87,
+              ),
+            ),
+            const SizedBox(height: 8),
+            const Text(
+              'Tap a book on Home or in search results to add it to a shelf.',
+              textAlign: TextAlign.center,
+              style: TextStyle(color: Colors.grey),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildKitapKarti(RafKaydi kayit) {
+    final kitap = kayit.kitap;
+    return Container(
+      margin: const EdgeInsets.only(bottom: 16),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(8),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.05),
+            blurRadius: 4,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          ClipRRect(
+            borderRadius: BorderRadius.circular(4),
+            child: kapakResmi(kitap.resimYolu, genislik: 70, yukseklik: 105),
+          ),
+          const SizedBox(width: 14),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  kitap.baslik,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.black87,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  'by ${kitap.yazar}',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(fontSize: 13, color: Colors.grey),
+                ),
+                const SizedBox(height: 8),
+                _buildYildizlar(kayit),
+                if (kayit.raf == RafTuru.suAnOkuyorum) ...[
+                  const SizedBox(height: 8),
+                  _buildIlerleme(kayit),
+                ],
+                const SizedBox(height: 10),
+                RafButonu(kitap: kitap),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildYildizlar(RafKaydi kayit) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        for (int i = 1; i <= 5; i++)
+          GestureDetector(
+            onTap: () {
+              // Aynı yıldıza tekrar basınca puanı kaldırır
+              RafYoneticisi.instance.puanVer(
+                kayit.kitap,
+                kayit.puan == i ? 0 : i,
+              );
+            },
+            child: Icon(
+              i <= kayit.puan ? Icons.star : Icons.star_border,
+              size: 24,
+              color: i <= kayit.puan ? Colors.amber : Colors.grey,
+            ),
+          ),
+        if (kayit.puan == 0)
+          const Padding(
+            padding: EdgeInsets.only(left: 6),
+            child: Text(
+              'Rate this book',
+              style: TextStyle(fontSize: 12, color: Colors.grey),
+            ),
+          ),
+      ],
+    );
+  }
+
+  Widget _buildIlerleme(RafKaydi kayit) {
+    final yuzde = (kayit.ilerleme * 100).round();
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        ClipRRect(
+          borderRadius: BorderRadius.circular(4),
+          child: LinearProgressIndicator(
+            value: kayit.ilerleme,
+            minHeight: 6,
+            backgroundColor: Colors.grey.shade200,
+            color: kAnaRenk,
+          ),
+        ),
+        const SizedBox(height: 4),
+        Row(
+          children: [
+            Text(
+              '$yuzde% done',
+              style: const TextStyle(fontSize: 12, color: Colors.grey),
+            ),
+            const Spacer(),
+            GestureDetector(
+              onTap: () => _ilerlemeDialogu(kayit),
+              child: const Text(
+                'Update progress',
+                style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                  color: kAnaRenk,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+
+  void _ilerlemeDialogu(RafKaydi kayit) {
+    double deger = kayit.ilerleme;
+    showDialog(
+      context: context,
+      builder: (dialogContext) {
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            return AlertDialog(
+              title: const Text('Update progress'),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    '${(deger * 100).round()}%',
+                    style: const TextStyle(
+                      fontSize: 24,
+                      fontWeight: FontWeight.bold,
+                      color: kAnaRenk,
+                    ),
+                  ),
+                  Slider(
+                    value: deger,
+                    activeColor: kAnaRenk,
+                    onChanged: (v) {
+                      setDialogState(() {
+                        deger = v;
+                      });
+                    },
+                  ),
+                ],
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(dialogContext),
+                  child: const Text('Cancel'),
+                ),
+                ElevatedButton(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: kAnaRenk,
+                  ),
+                  onPressed: () {
+                    RafYoneticisi.instance.ilerlemeGuncelle(kayit.kitap, deger);
+                    Navigator.pop(dialogContext);
+                  },
+                  child: const Text(
+                    'Save',
+                    style: TextStyle(color: Colors.white),
+                  ),
+                ),
+              ],
+            );
+          },
+        );
+      },
     );
   }
 }
@@ -884,12 +1508,109 @@ class ListeDetaySayfasi extends StatelessWidget {
                     ],
                   ),
                 ),
-                const Icon(Icons.chevron_right, color: Colors.grey),
+                const SizedBox(width: 8),
+                RafButonu(kitap: kitap),
               ],
             ),
           );
         },
       ),
+    );
+  }
+}
+
+// ----------------------------------------------------
+// ARAMA SONUÇLARI SAYFASI
+// ----------------------------------------------------
+class AramaSonuclariSayfasi extends StatelessWidget {
+  final List<KitapModel> sonuclar;
+  final String sorgu;
+
+  const AramaSonuclariSayfasi({
+    super.key,
+    required this.sonuclar,
+    required this.sorgu,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    if (sonuclar.isEmpty) {
+      return Center(
+        child: Text(
+          'No results found for "$sorgu"',
+          style: const TextStyle(fontSize: 16, color: Colors.grey),
+        ),
+      );
+    }
+
+    return ListView.builder(
+      padding: const EdgeInsets.all(16),
+      itemCount: sonuclar.length,
+      itemBuilder: (context, index) {
+        final kitap = sonuclar[index];
+        return Container(
+          margin: const EdgeInsets.only(bottom: 16),
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(8),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.05),
+                blurRadius: 4,
+                offset: const Offset(0, 2),
+              ),
+            ],
+          ),
+          child: Row(
+            children: [
+              ClipRRect(
+                borderRadius: BorderRadius.circular(4),
+                child: Image.asset(
+                  kitap.resimYolu,
+                  width: 60,
+                  height: 90,
+                  fit: BoxFit.cover,
+                  errorBuilder: (context, error, stackTrace) {
+                    return Container(
+                      width: 60,
+                      height: 90,
+                      color: Colors.grey.shade300,
+                      child: const Icon(
+                        Icons.broken_image,
+                        color: Colors.grey,
+                      ),
+                    );
+                  },
+                ),
+              ),
+              const SizedBox(width: 16),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      kitap.baslik,
+                      style: const TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.black87,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      kitap.yazar,
+                      style: const TextStyle(fontSize: 14, color: Colors.grey),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 8),
+              RafButonu(kitap: kitap),
+            ],
+          ),
+        );
+      },
     );
   }
 }
