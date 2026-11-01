@@ -893,3 +893,4 @@ class ListeDetaySayfasi extends StatelessWidget {
     );
   }
 }
+// test yorumu
