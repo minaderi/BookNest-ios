@@ -77,38 +77,46 @@ class KitapDetaySayfasi extends StatelessWidget {
             const SizedBox(height: 24),
             _buildRafButonu(context),
             const SizedBox(height: 24),
-            Container(
-              padding: const EdgeInsets.all(16),
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(8),
-                border: Border.all(color: Colors.grey.shade300),
-              ),
-              child: const Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    'About this book',
-                    style: TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.bold,
-                      color: Colors.black87,
-                    ),
-                  ),
-                  SizedBox(height: 8),
-                  Text(
-                    'Bu kitap, yazarın edebi dünyasında derin bir yolculuk sunuyor. Karakter analizleri, akıcı kurgusu ve atmosferik anlatımıyla okuyucuyu ilk sayfadan itibaren etkisi altına alan büyüleyici bir eser.',
-                    style: TextStyle(
-                      fontSize: 14,
-                      color: Colors.black54,
-                      height: 1.4,
-                    ),
-                  ),
-                ],
-              ),
-            ),
+            _buildAciklama(),
           ],
         ),
+      ),
+    );
+  }
+
+  // "About this book" kutusu - kitabın kendi açıklamasını gösterir
+  Widget _buildAciklama() {
+    final aciklamaVar = kitap.aciklama.trim().isNotEmpty;
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: Colors.grey.shade300),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            'About this book',
+            style: TextStyle(
+              fontSize: 16,
+              fontWeight: FontWeight.bold,
+              color: Colors.black87,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            aciklamaVar ? kitap.aciklama : 'No description available yet.',
+            style: TextStyle(
+              fontSize: 14,
+              color: aciklamaVar ? Colors.black54 : Colors.grey,
+              fontStyle: aciklamaVar ? FontStyle.normal : FontStyle.italic,
+              height: 1.4,
+            ),
+          ),
+        ],
       ),
     );
   }
