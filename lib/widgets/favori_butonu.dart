@@ -22,8 +22,14 @@ class FavoriButonu extends StatelessWidget {
             color: favori ? Colors.red : Colors.black54,
           ),
           onPressed: () {
-            FavoriYoneticisi.instance.degistir(kitap);
             ScaffoldMessenger.of(context).hideCurrentSnackBar();
+            if (!FavoriYoneticisi.instance.girisYapildi) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text('Please log in to save books')),
+              );
+              return;
+            }
+            FavoriYoneticisi.instance.degistir(kitap);
             ScaffoldMessenger.of(context).showSnackBar(
               SnackBar(
                 content: Text(

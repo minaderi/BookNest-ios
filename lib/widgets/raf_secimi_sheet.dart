@@ -8,6 +8,14 @@ import '../services/raf_yoneticisi.dart';
 
 // Alttan açılan "rafa ekle" menüsü
 void rafSecimiGoster(BuildContext context, KitapModel kitap) {
+  // Giriş yapılmadıysa menüyü açmadan uyar
+  if (!RafYoneticisi.instance.girisYapildi) {
+    ScaffoldMessenger.of(context).hideCurrentSnackBar();
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Please log in to save books')),
+    );
+    return;
+  }
   showModalBottomSheet(
     context: context,
     backgroundColor: Colors.white,

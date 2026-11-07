@@ -1,7 +1,11 @@
 import 'package:flutter/material.dart';
 
 import '../core/sabitler.dart';
+import '../models/raf_turu.dart';
+import '../services/favori_yoneticisi.dart';
 import '../services/kullanici_deposu.dart';
+import '../services/raf_yoneticisi.dart';
+import 'account_settings_page.dart';
 
 // PROFİL SAYFASI
 class ProfilePage extends StatefulWidget {
@@ -15,6 +19,7 @@ class _ProfilePageState extends State<ProfilePage> {
   static bool _isLoggedIn = false;
   static String _userEmail = '';
   static String _userName = '';
+  static int? _avatarNo; // seçilen avatar (1-8), seçilmediyse null
 
   // Kayıtlı kullanıcılar (açılışta cihaz hafızasından yüklenir)
   // Format: 'email' : {'name': 'Kullanıcı Adı', 'password': 'Sifre'}
@@ -37,15 +42,24 @@ class _ProfilePageState extends State<ProfilePage> {
   Future<void> _verileriYukle() async {
     final kullanicilar = await KullaniciDeposu.kullanicilariGetir();
     final oturumEmail = await KullaniciDeposu.oturumuGetir();
+    final avatarNo = oturumEmail == null
+        ? null
+        : await KullaniciDeposu.avatariGetir(oturumEmail);
     if (!mounted) return;
 
     setState(() {
       _registeredUsers = kullanicilar;
+      _avatarNo = avatarNo;
       final kullanici = oturumEmail == null ? null : kullanicilar[oturumEmail];
       if (kullanici != null) {
         _userEmail = oturumEmail!;
         _userName = kullanici['name'] ?? '';
         _isLoggedIn = true;
+      } else {
+        // Oturum yok (ör. hesap silindi)
+        _userEmail = '';
+        _userName = '';
+        _isLoggedIn = false;
       }
       _yukleniyor = false;
     });
@@ -81,10 +95,31 @@ class _ProfilePageState extends State<ProfilePage> {
         Center(
           child: Column(
             children: [
-              const CircleAvatar(
-                radius: 50,
-                backgroundColor: kAnaRenk,
-                child: Icon(Icons.person, size: 50, color: Colors.white),
+              // Avatar + köşede kalem rozeti; tıklayınca seçim menüsü açılır
+              GestureDetector(
+                onTap: _avatarSeciminiGoster,
+                child: Stack(
+                  children: [
+                    _avatarResmi(_avatarNo, 50),
+                    Positioned(
+                      right: 0,
+                      bottom: 0,
+                      child: Container(
+                        padding: const EdgeInsets.all(6),
+                        decoration: BoxDecoration(
+                          color: Colors.white,
+                          shape: BoxShape.circle,
+                          border: Border.all(color: kAnaRenk, width: 1.5),
+                        ),
+                        child: const Icon(
+                          Icons.edit,
+                          size: 16,
+                          color: kAnaRenk,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
               ),
               const SizedBox(height: 12),
               Text(
@@ -117,13 +152,32 @@ class _ProfilePageState extends State<ProfilePage> {
               ),
             ],
           ),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.spaceAround,
-            children: [
-              _buildStatItem('12', 'Read'),
-              _buildStatItem('5', 'Favorites'),
-              _buildStatItem('3', 'Goal'),
-            ],
+          // Raflar veya favoriler değiştikçe sayılar kendiliğinden güncellenir
+          child: ListenableBuilder(
+            listenable: Listenable.merge([
+              RafYoneticisi.instance,
+              FavoriYoneticisi.instance,
+            ]),
+            builder: (context, _) {
+              final raflar = RafYoneticisi.instance;
+              return Row(
+                mainAxisAlignment: MainAxisAlignment.spaceAround,
+                children: [
+                  _buildStatItem(
+                    '${raflar.rafta(RafTuru.okudum).length}',
+                    'Read',
+                  ),
+                  _buildStatItem(
+                    '${FavoriYoneticisi.instance.sayi}',
+                    'Favorites',
+                  ),
+                  _buildStatItem(
+                    '${raflar.rafta(RafTuru.okumakIstiyorum).length}',
+                    'Want to Read',
+                  ),
+                ],
+              );
+            },
           ),
         ),
         const SizedBox(height: 20),
@@ -145,7 +199,7 @@ class _ProfilePageState extends State<ProfilePage> {
                 leading: const Icon(Icons.settings_outlined, color: kAnaRenk),
                 title: const Text('Account Settings'),
                 trailing: const Icon(Icons.chevron_right),
-                onTap: () {},
+                onTap: _hesapAyarlariniAc,
               ),
               const Divider(height: 1),
               ListTile(
@@ -237,6 +291,17 @@ class _ProfilePageState extends State<ProfilePage> {
                 style: const TextStyle(fontSize: 16),
               ),
             ),
+            if (!_isRegistering)
+              Align(
+                alignment: Alignment.centerRight,
+                child: TextButton(
+                  onPressed: _showForgotPasswordDialog,
+                  child: const Text(
+                    'Forgot Password?',
+                    style: TextStyle(color: kAnaRenk, fontSize: 13),
+                  ),
+                ),
+              ),
             const SizedBox(height: 12),
             TextButton(
               onPressed: () {
@@ -298,6 +363,12 @@ class _ProfilePageState extends State<ProfilePage> {
       return;
     }
 
+    // Yeni kayıtlarda şifre en az 6 karakter olmalı
+    if (_isRegistering && password.length < kMinSifreUzunlugu) {
+      _mesajGoster('Password must be at least $kMinSifreUzunlugu characters');
+      return;
+    }
+
     if (_isRegistering) {
       await _kayitOl(email, password, name);
     } else {
@@ -313,6 +384,7 @@ class _ProfilePageState extends State<ProfilePage> {
     _registeredUsers[email] = {'name': name, 'password': password};
     await KullaniciDeposu.kullanicilariKaydet(_registeredUsers);
     await KullaniciDeposu.oturumuKaydet(email);
+    await _kitaplariYukle(email);
     if (!mounted) return;
     setState(() {
       _userEmail = email;
@@ -330,6 +402,7 @@ class _ProfilePageState extends State<ProfilePage> {
       _mesajGoster('Incorrect password! Please try again.');
     } else {
       await KullaniciDeposu.oturumuKaydet(email);
+      await _kitaplariYukle(email);
       if (!mounted) return;
       setState(() {
         _userEmail = email;
@@ -340,8 +413,98 @@ class _ProfilePageState extends State<ProfilePage> {
     }
   }
 
+  // Giriş yapan kişinin favori, raf ve avatarını yükler (null = boşalt)
+  Future<void> _kitaplariYukle(String? email) async {
+    await FavoriYoneticisi.instance.kullaniciyaGec(email);
+    await RafYoneticisi.instance.kullaniciyaGec(email);
+    _avatarNo = email == null
+        ? null
+        : await KullaniciDeposu.avatariGetir(email);
+  }
+
+  // ------------------- AVATAR -------------------
+
+  // Avatar resmi; seçilmediyse kişi ikonu
+  Widget _avatarResmi(int? no, double yaricap) {
+    if (no == null || no < 1 || no > kAvatarSayisi) {
+      return CircleAvatar(
+        radius: yaricap,
+        backgroundColor: kAnaRenk,
+        child: Icon(Icons.person, size: yaricap, color: Colors.white),
+      );
+    }
+    return CircleAvatar(
+      radius: yaricap,
+      backgroundColor: Colors.transparent,
+      backgroundImage: AssetImage('assets/images/avatars/avatar_$no.png'),
+    );
+  }
+
+  // Alttan açılan avatar seçim menüsü (4'erli iki satır)
+  void _avatarSeciminiGoster() {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      builder: (sheetContext) {
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(16, 20, 16, 24),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Text(
+                  'Choose Your Avatar',
+                  style: TextStyle(fontSize: 17, fontWeight: FontWeight.bold),
+                ),
+                const SizedBox(height: 20),
+                GridView.count(
+                  crossAxisCount: 4,
+                  shrinkWrap: true,
+                  mainAxisSpacing: 16,
+                  crossAxisSpacing: 16,
+                  physics: const NeverScrollableScrollPhysics(),
+                  children: [
+                    for (var no = 1; no <= kAvatarSayisi; no++)
+                      GestureDetector(
+                        onTap: () {
+                          Navigator.pop(sheetContext);
+                          _avatariSec(no);
+                        },
+                        child: Container(
+                          padding: const EdgeInsets.all(3),
+                          decoration: BoxDecoration(
+                            shape: BoxShape.circle,
+                            border: Border.all(
+                              color: no == _avatarNo
+                                  ? kAnaRenk
+                                  : Colors.transparent,
+                              width: 3,
+                            ),
+                          ),
+                          child: _avatarResmi(no, 40),
+                        ),
+                      ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Future<void> _avatariSec(int no) async {
+    setState(() => _avatarNo = no);
+    await KullaniciDeposu.avatariKaydet(_userEmail, no);
+  }
+
   Future<void> _cikisYap() async {
     await KullaniciDeposu.oturumuKapat();
+    await _kitaplariYukle(null);
     if (!mounted) return;
     setState(() {
       _isLoggedIn = false;
@@ -351,41 +514,299 @@ class _ProfilePageState extends State<ProfilePage> {
     });
   }
 
-  void _showChangePasswordDialog(BuildContext context) {
-    showDialog(
+  Future<void> _showChangePasswordDialog(BuildContext context) async {
+    final kullanici = _registeredUsers[_userEmail];
+    if (kullanici == null) return;
+
+    final kaydedildi = await showDialog<bool>(
       context: context,
-      builder: (dialogContext) {
-        return AlertDialog(
-          title: const Text('Change Password'),
-          content: const Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              TextField(
-                obscureText: true,
-                decoration: InputDecoration(labelText: 'Old Password'),
-              ),
-              TextField(
-                obscureText: true,
-                decoration: InputDecoration(labelText: 'New Password'),
-              ),
-            ],
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(dialogContext),
-              child: const Text('Cancel'),
-            ),
-            ElevatedButton(
-              style: ElevatedButton.styleFrom(backgroundColor: kAnaRenk),
-              onPressed: () {
-                Navigator.pop(dialogContext);
-                _mesajGoster('Password updated successfully!');
-              },
-              child: const Text('Save', style: TextStyle(color: Colors.white)),
+      builder: (_) => _SifreDegistirmeDialogu(
+        mevcutSifre: kullanici['password'] ?? '',
+        onKaydet: (yeniSifre) async {
+          kullanici['password'] = yeniSifre;
+          await KullaniciDeposu.kullanicilariKaydet(_registeredUsers);
+        },
+      ),
+    );
+    if (kaydedildi == true) {
+      _mesajGoster('Password updated successfully!');
+    }
+  }
+
+  Future<void> _hesapAyarlariniAc() async {
+    await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => AccountSettingsPage(
+          email: _userEmail,
+          kullanicilar: _registeredUsers,
+        ),
+      ),
+    );
+    // Ad / e-posta değişmiş ya da hesap silinmiş olabilir: yeniden oku
+    await _verileriYukle();
+    if (!_isLoggedIn) _formuTemizle();
+  }
+
+  Future<void> _showForgotPasswordDialog() async {
+    final email = await showDialog<String>(
+      context: context,
+      builder: (_) => _SifreSifirlamaDialogu(
+        kullanicilar: _registeredUsers,
+        onKaydet: (email, yeniSifre) async {
+          _registeredUsers[email]!['password'] = yeniSifre;
+          await KullaniciDeposu.kullanicilariKaydet(_registeredUsers);
+        },
+      ),
+    );
+    if (email == null || !mounted) return;
+    // Sıfırlanan e-postayı giriş kutusuna yaz
+    _emailController.text = email;
+    _passwordController.clear();
+    _mesajGoster('Password reset! You can now log in');
+  }
+}
+
+// assets/images/avatars/ klasöründeki avatar sayısı (avatar_1 ... avatar_8)
+const int kAvatarSayisi = 8;
+
+// Kayıt ve şifre değiştirmede geçerli en kısa şifre uzunluğu
+const int kMinSifreUzunlugu = 6;
+
+// Yeni şifre kuralları (şifre değiştirme ve sıfırlamada ortak).
+// Sorun yoksa null, varsa hata mesajı döner.
+String? _yeniSifreHatasi(String yeni, {String? eskiSifre}) {
+  if (yeni.isEmpty) return 'Please fill in all fields';
+  if (yeni.length < kMinSifreUzunlugu) {
+    return 'Must be at least $kMinSifreUzunlugu characters';
+  }
+  if (eskiSifre != null && yeni == eskiSifre) {
+    return 'New password must be different';
+  }
+  return null;
+}
+
+String? _sifreTekrarHatasi(String yeni, String tekrar) {
+  if (tekrar.isEmpty) return 'Please fill in all fields';
+  if (tekrar != yeni) return 'Passwords do not match';
+  return null;
+}
+
+// Şifre kutusu (pencerelerde ortak)
+Widget _sifreKutusu(
+  TextEditingController controller,
+  String etiket,
+  String? hata, {
+  bool gizli = true,
+}) {
+  return TextField(
+    controller: controller,
+    obscureText: gizli,
+    decoration: InputDecoration(labelText: etiket, errorText: hata),
+  );
+}
+
+// ŞİFREMİ UNUTTUM PENCERESİ
+// E-posta ve kullanıcı adı eşleşirse yeni şifre belirlenir.
+// Başarılı olursa pencere sıfırlanan e-postayı döndürür.
+class _SifreSifirlamaDialogu extends StatefulWidget {
+  final Map<String, Map<String, String>> kullanicilar;
+  final Future<void> Function(String email, String yeniSifre) onKaydet;
+
+  const _SifreSifirlamaDialogu({
+    required this.kullanicilar,
+    required this.onKaydet,
+  });
+
+  @override
+  State<_SifreSifirlamaDialogu> createState() => _SifreSifirlamaDialoguState();
+}
+
+class _SifreSifirlamaDialoguState extends State<_SifreSifirlamaDialogu> {
+  final _emailController = TextEditingController();
+  final _adController = TextEditingController();
+  final _yeniController = TextEditingController();
+  final _tekrarController = TextEditingController();
+
+  String? _emailHata;
+  String? _adHata;
+  String? _yeniHata;
+  String? _tekrarHata;
+  bool _kaydediliyor = false;
+
+  @override
+  void dispose() {
+    _emailController.dispose();
+    _adController.dispose();
+    _yeniController.dispose();
+    _tekrarController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _kaydet() async {
+    final email = _emailController.text.trim();
+    final ad = _adController.text.trim();
+    final yeni = _yeniController.text;
+    final tekrar = _tekrarController.text;
+
+    String? emailHata = email.isEmpty ? 'Please fill in all fields' : null;
+    String? adHata = ad.isEmpty ? 'Please fill in all fields' : null;
+
+    // E-posta ve kullanıcı adı eşleşmeli (büyük/küçük harf fark etmez).
+    // Hangisinin yanlış olduğunu söylemiyoruz.
+    if (emailHata == null && adHata == null) {
+      final kayitliAd = widget.kullanicilar[email]?['name'];
+      if (kayitliAd == null || kayitliAd.toLowerCase() != ad.toLowerCase()) {
+        adHata = 'Email or username is incorrect';
+      }
+    }
+
+    final yeniHata = _yeniSifreHatasi(yeni);
+    final tekrarHata = _sifreTekrarHatasi(yeni, tekrar);
+
+    setState(() {
+      _emailHata = emailHata;
+      _adHata = adHata;
+      _yeniHata = yeniHata;
+      _tekrarHata = tekrarHata;
+    });
+    if (emailHata != null ||
+        adHata != null ||
+        yeniHata != null ||
+        tekrarHata != null) {
+      return;
+    }
+
+    setState(() => _kaydediliyor = true);
+    await widget.onKaydet(email, yeni);
+    if (!mounted) return;
+    Navigator.pop(context, email);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('Reset Password'),
+      content: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            _sifreKutusu(_emailController, 'Email', _emailHata, gizli: false),
+            _sifreKutusu(_adController, 'Username', _adHata, gizli: false),
+            _sifreKutusu(_yeniController, 'New Password', _yeniHata),
+            _sifreKutusu(
+              _tekrarController,
+              'Confirm New Password',
+              _tekrarHata,
             ),
           ],
-        );
-      },
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: _kaydediliyor ? null : () => Navigator.pop(context),
+          child: const Text('Cancel'),
+        ),
+        ElevatedButton(
+          style: ElevatedButton.styleFrom(backgroundColor: kAnaRenk),
+          onPressed: _kaydediliyor ? null : _kaydet,
+          child: const Text('Reset', style: TextStyle(color: Colors.white)),
+        ),
+      ],
+    );
+  }
+}
+
+// ŞİFRE DEĞİŞTİRME PENCERESİ
+// Hatalar ilgili kutunun altında gösterilir, pencere ancak başarılı olunca kapanır.
+class _SifreDegistirmeDialogu extends StatefulWidget {
+  final String mevcutSifre;
+  final Future<void> Function(String yeniSifre) onKaydet;
+
+  const _SifreDegistirmeDialogu({
+    required this.mevcutSifre,
+    required this.onKaydet,
+  });
+
+  @override
+  State<_SifreDegistirmeDialogu> createState() =>
+      _SifreDegistirmeDialoguState();
+}
+
+class _SifreDegistirmeDialoguState extends State<_SifreDegistirmeDialogu> {
+  final _eskiController = TextEditingController();
+  final _yeniController = TextEditingController();
+  final _tekrarController = TextEditingController();
+
+  String? _eskiHata;
+  String? _yeniHata;
+  String? _tekrarHata;
+  bool _kaydediliyor = false;
+
+  @override
+  void dispose() {
+    _eskiController.dispose();
+    _yeniController.dispose();
+    _tekrarController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _kaydet() async {
+    final eski = _eskiController.text;
+    final yeni = _yeniController.text;
+    final tekrar = _tekrarController.text;
+
+    String? eskiHata;
+    if (eski.isEmpty) {
+      eskiHata = 'Please fill in all fields';
+    } else if (eski != widget.mevcutSifre) {
+      eskiHata = 'Old password is incorrect';
+    }
+    final yeniHata = _yeniSifreHatasi(yeni, eskiSifre: widget.mevcutSifre);
+    final tekrarHata = _sifreTekrarHatasi(yeni, tekrar);
+
+    setState(() {
+      _eskiHata = eskiHata;
+      _yeniHata = yeniHata;
+      _tekrarHata = tekrarHata;
+    });
+    if (eskiHata != null || yeniHata != null || tekrarHata != null) return;
+
+    setState(() => _kaydediliyor = true);
+    await widget.onKaydet(yeni);
+    if (!mounted) return;
+    Navigator.pop(context, true);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('Change Password'),
+      content: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            _sifreKutusu(_eskiController, 'Old Password', _eskiHata),
+            _sifreKutusu(_yeniController, 'New Password', _yeniHata),
+            _sifreKutusu(
+              _tekrarController,
+              'Confirm New Password',
+              _tekrarHata,
+            ),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: _kaydediliyor ? null : () => Navigator.pop(context),
+          child: const Text('Cancel'),
+        ),
+        ElevatedButton(
+          style: ElevatedButton.styleFrom(backgroundColor: kAnaRenk),
+          onPressed: _kaydediliyor ? null : _kaydet,
+          child: const Text('Save', style: TextStyle(color: Colors.white)),
+        ),
+      ],
     );
   }
 }

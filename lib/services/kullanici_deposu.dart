@@ -42,4 +42,44 @@ class KullaniciDeposu {
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove(_oturumAnahtari);
   }
+
+  // Seçilen avatarın numarası (1-8), seçilmediyse null
+  static Future<int?> avatariGetir(String email) async {
+    final prefs = await SharedPreferences.getInstance();
+    return int.tryParse(prefs.getString('avatar_$email') ?? '');
+  }
+
+  static Future<void> avatariKaydet(String email, int no) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('avatar_$email', '$no');
+  }
+
+  // Kişinin favori, raf, okuma hedefi ve avatar kayıtlarının anahtarları
+  // (FavoriYoneticisi ve RafYoneticisi de aynı anahtarları kullanır)
+  static List<String> _kitapAnahtarlari(String email) => [
+    'favoriler_$email',
+    'raflar_$email',
+    'hedef_$email',
+    'avatar_$email',
+  ];
+
+  // E-posta değişince favori, raf, hedef ve avatarı yeni e-postaya taşır
+  static Future<void> kitaplariTasi(String eskiEmail, String yeniEmail) async {
+    final prefs = await SharedPreferences.getInstance();
+    final eskiler = _kitapAnahtarlari(eskiEmail);
+    final yeniler = _kitapAnahtarlari(yeniEmail);
+    for (var i = 0; i < eskiler.length; i++) {
+      final veri = prefs.getString(eskiler[i]);
+      if (veri != null) await prefs.setString(yeniler[i], veri);
+      await prefs.remove(eskiler[i]);
+    }
+  }
+
+  // Hesap silinince o kişinin favori, raf, hedef ve avatarını siler
+  static Future<void> kitaplariSil(String email) async {
+    final prefs = await SharedPreferences.getInstance();
+    for (final anahtar in _kitapAnahtarlari(email)) {
+      await prefs.remove(anahtar);
+    }
+  }
 }

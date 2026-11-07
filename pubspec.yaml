@@ -24,3 +24,4 @@ flutter:
   # Yerel resim klasörümüzü buraya ekliyoruz
   assets:
     - assets/images/
+    - assets/images/avatars/
