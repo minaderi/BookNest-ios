@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../core/sabitler.dart';
+import '../services/kullanici_deposu.dart';
 
 // PROFİL SAYFASI
 class ProfilePage extends StatefulWidget {
@@ -15,15 +16,40 @@ class _ProfilePageState extends State<ProfilePage> {
   static String _userEmail = '';
   static String _userName = '';
 
-  // Geçici Yerel Veritabanı (Backend eklenene kadar kullanıcıları burada tutuyoruz)
+  // Kayıtlı kullanıcılar (açılışta cihaz hafızasından yüklenir)
   // Format: 'email' : {'name': 'Kullanıcı Adı', 'password': 'Sifre'}
-  static final Map<String, Map<String, String>> _registeredUsers = {};
+  static Map<String, Map<String, String>> _registeredUsers = {};
 
   bool _isRegistering = false;
+  bool _yukleniyor = true;
 
   final TextEditingController _nameController = TextEditingController();
   final TextEditingController _emailController = TextEditingController();
   final TextEditingController _passwordController = TextEditingController();
+
+  @override
+  void initState() {
+    super.initState();
+    _verileriYukle();
+  }
+
+  // Kayıtlı kullanıcıları ve açık oturumu hafızadan okur
+  Future<void> _verileriYukle() async {
+    final kullanicilar = await KullaniciDeposu.kullanicilariGetir();
+    final oturumEmail = await KullaniciDeposu.oturumuGetir();
+    if (!mounted) return;
+
+    setState(() {
+      _registeredUsers = kullanicilar;
+      final kullanici = oturumEmail == null ? null : kullanicilar[oturumEmail];
+      if (kullanici != null) {
+        _userEmail = oturumEmail!;
+        _userName = kullanici['name'] ?? '';
+        _isLoggedIn = true;
+      }
+      _yukleniyor = false;
+    });
+  }
 
   @override
   void dispose() {
@@ -35,6 +61,11 @@ class _ProfilePageState extends State<ProfilePage> {
 
   @override
   Widget build(BuildContext context) {
+    if (_yukleniyor) {
+      return const Scaffold(
+        body: Center(child: CircularProgressIndicator(color: kAnaRenk)),
+      );
+    }
     return Scaffold(
       body: _isLoggedIn ? _buildProfileContent() : _buildAuthCard(),
     );
@@ -256,7 +287,7 @@ class _ProfilePageState extends State<ProfilePage> {
     _passwordController.clear();
   }
 
-  void _gonder() {
+  Future<void> _gonder() async {
     final email = _emailController.text.trim();
     final password = _passwordController.text;
     final name = _nameController.text.trim();
@@ -268,18 +299,21 @@ class _ProfilePageState extends State<ProfilePage> {
     }
 
     if (_isRegistering) {
-      _kayitOl(email, password, name);
+      await _kayitOl(email, password, name);
     } else {
-      _girisYap(email, password);
+      await _girisYap(email, password);
     }
   }
 
-  void _kayitOl(String email, String password, String name) {
+  Future<void> _kayitOl(String email, String password, String name) async {
     if (_registeredUsers.containsKey(email)) {
       _mesajGoster('This email is already registered. Please log in.');
       return;
     }
     _registeredUsers[email] = {'name': name, 'password': password};
+    await KullaniciDeposu.kullanicilariKaydet(_registeredUsers);
+    await KullaniciDeposu.oturumuKaydet(email);
+    if (!mounted) return;
     setState(() {
       _userEmail = email;
       _userName = name;
@@ -288,13 +322,15 @@ class _ProfilePageState extends State<ProfilePage> {
     _mesajGoster('Registration successful!');
   }
 
-  void _girisYap(String email, String password) {
+  Future<void> _girisYap(String email, String password) async {
     final kullanici = _registeredUsers[email];
     if (kullanici == null) {
       _mesajGoster('This account is not registered. Please sign up first.');
     } else if (kullanici['password'] != password) {
       _mesajGoster('Incorrect password! Please try again.');
     } else {
+      await KullaniciDeposu.oturumuKaydet(email);
+      if (!mounted) return;
       setState(() {
         _userEmail = email;
         _userName = kullanici['name']!;
@@ -304,7 +340,9 @@ class _ProfilePageState extends State<ProfilePage> {
     }
   }
 
-  void _cikisYap() {
+  Future<void> _cikisYap() async {
+    await KullaniciDeposu.oturumuKapat();
+    if (!mounted) return;
     setState(() {
       _isLoggedIn = false;
       _userEmail = '';
