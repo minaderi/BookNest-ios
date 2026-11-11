@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 
 import '../core/sabitler.dart';
-import '../data/ornek_listeler.dart';
 import '../models/kitap_model.dart';
+import '../services/kitap_yoneticisi.dart';
 import 'ana_sayfa_icerigi.dart';
 import 'arama_sonuclari_sayfasi.dart';
 import 'more_page.dart';
@@ -30,28 +30,26 @@ class _GoodreadsAnaSayfaState extends State<GoodreadsAnaSayfa> {
     super.dispose();
   }
 
-  List<KitapModel> get _aramaSonuclari {
-    final sorgu = _aramaMetni.toLowerCase().trim();
-    final Map<String, KitapModel> benzersiz = {};
-    for (final liste in anaSayfaListeleri) {
-      for (final kitap in liste.kitaplar) {
-        if (kitap.baslik.toLowerCase().contains(sorgu) ||
-            kitap.yazar.toLowerCase().contains(sorgu)) {
-          benzersiz['${kitap.baslik}|${kitap.yazar}'] = kitap;
-        }
-      }
-    }
-    return benzersiz.values.toList();
-  }
+  // Arama artık admin panelindeki güncel kitaplar arasında yapılıyor
+  List<KitapModel> get _aramaSonuclari =>
+      KitapYoneticisi.instance.ara(_aramaMetni);
   // ---- ARAMA SONU ----
 
-  final List<Widget> _sayfalar = const [
-    AnaSayfaIcerigi(listeler: anaSayfaListeleri),
-    MyBooksPage(),
-    ProfilePage(),
-    SearchPage(),
-    MorePage(),
-  ];
+  // Seçili sekmeye göre sayfa
+  Widget _seciliSayfa() {
+    switch (_seciliSekme) {
+      case 0:
+        return AnaSayfaIcerigi(listeler: KitapYoneticisi.instance.listeler);
+      case 1:
+        return const MyBooksPage();
+      case 2:
+        return const ProfilePage();
+      case 3:
+        return const SearchPage();
+      default:
+        return const MorePage();
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -70,12 +68,18 @@ class _GoodreadsAnaSayfaState extends State<GoodreadsAnaSayfa> {
           ],
         ),
       ),
-      body: _aramaMetni.trim().isNotEmpty
-          ? AramaSonuclariSayfasi(
-              sonuclar: _aramaSonuclari,
-              sorgu: _aramaMetni.trim(),
-            )
-          : _sayfalar[_seciliSekme],
+      // Admin panelinde kitap/liste değişince sayfa kendini yeniler
+      body: ListenableBuilder(
+        listenable: KitapYoneticisi.instance,
+        builder: (context, _) {
+          return _aramaMetni.trim().isNotEmpty
+              ? AramaSonuclariSayfasi(
+                  sonuclar: _aramaSonuclari,
+                  sorgu: _aramaMetni.trim(),
+                )
+              : _seciliSayfa();
+        },
+      ),
       bottomNavigationBar: NavigationBar(
         backgroundColor: Colors.white,
         selectedIndex: _seciliSekme,
