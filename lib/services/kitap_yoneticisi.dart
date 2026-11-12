@@ -46,7 +46,8 @@ class KitapYoneticisi extends ChangeNotifier {
         .where(
           (k) =>
               k.baslik.toLowerCase().contains(s) ||
-              k.yazar.toLowerCase().contains(s),
+              k.yazar.toLowerCase().contains(s) ||
+              k.tur.toLowerCase().contains(s),
         )
         .toList();
   }

@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../core/sabitler.dart';
 import '../models/kitap_model.dart';
 import '../services/kitap_yoneticisi.dart';
+import '../services/son_aramalar_deposu.dart';
 import 'ana_sayfa_icerigi.dart';
 import 'arama_sonuclari_sayfasi.dart';
 import 'more_page.dart';
@@ -25,6 +26,17 @@ class _GoodreadsAnaSayfaState extends State<GoodreadsAnaSayfa> {
   String _aramaMetni = '';
 
   @override
+  void initState() {
+    super.initState();
+    // Metin Search sayfasından da değişebiliyor (ör. son aramaya tıklanınca)
+    _aramaController.addListener(() {
+      if (_aramaController.text != _aramaMetni) {
+        setState(() => _aramaMetni = _aramaController.text);
+      }
+    });
+  }
+
+  @override
   void dispose() {
     _aramaController.dispose();
     super.dispose();
@@ -45,45 +57,69 @@ class _GoodreadsAnaSayfaState extends State<GoodreadsAnaSayfa> {
       case 2:
         return const ProfilePage();
       case 3:
-        return const SearchPage();
+        return SearchPage(controller: _aramaController);
       default:
         return const MorePage();
     }
   }
 
+  // Üstteki arama çubuğu sadece My Books (1) ve Search (3) sekmelerinde
+  bool get _myBooksSekmesinde => _seciliSekme == 1;
+  bool get _searchSekmesinde => _seciliSekme == 3;
+  bool get _aramaCubuguVar => _myBooksSekmesinde || _searchSekmesinde;
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: PreferredSize(
-        preferredSize: const Size.fromHeight(70),
-        child: AppBar(
-          backgroundColor: kArkaPlanRengi,
-          elevation: 0,
-          title: _buildAramaKutusu(),
-          actions: const [
-            Padding(
-              padding: EdgeInsets.only(right: 12),
-              child: Icon(Icons.notifications_none, color: Colors.black87),
+      appBar: !_aramaCubuguVar
+          ? null
+          : PreferredSize(
+              preferredSize: const Size.fromHeight(70),
+              child: AppBar(
+                backgroundColor: kArkaPlanRengi,
+                elevation: 0,
+                title: _buildAramaKutusu(),
+                actions: const [
+                  Padding(
+                    padding: EdgeInsets.only(right: 12),
+                    child: Icon(
+                      Icons.notifications_none,
+                      color: Colors.black87,
+                    ),
+                  ),
+                ],
+              ),
             ),
-          ],
-        ),
-      ),
       // Admin panelinde kitap/liste değişince sayfa kendini yeniler
       body: ListenableBuilder(
         listenable: KitapYoneticisi.instance,
         builder: (context, _) {
-          return _aramaMetni.trim().isNotEmpty
+          // Search sekmesi sonuçları kendisi gösterir
+          return _aramaMetni.trim().isNotEmpty && _myBooksSekmesinde
               ? AramaSonuclariSayfasi(
                   sonuclar: _aramaSonuclari,
                   sorgu: _aramaMetni.trim(),
                 )
-              : _seciliSayfa();
+              // Üst çubuk yoksa içerik saat/pil satırının altından başlasın
+              : SafeArea(
+                  top: !_aramaCubuguVar,
+                  bottom: false,
+                  child: Padding(
+                    padding: EdgeInsets.only(top: _aramaCubuguVar ? 0 : 8),
+                    child: _seciliSayfa(),
+                  ),
+                );
         },
       ),
       bottomNavigationBar: NavigationBar(
         backgroundColor: Colors.white,
         selectedIndex: _seciliSekme,
         onDestinationSelected: (index) {
+          if (index != _seciliSekme) {
+            // Sekme değişince yarım kalan arama temizlensin
+            _aramaController.clear();
+            FocusScope.of(context).unfocus();
+          }
           setState(() {
             _seciliSekme = index;
           });
@@ -135,10 +171,9 @@ class _GoodreadsAnaSayfaState extends State<GoodreadsAnaSayfa> {
           Expanded(
             child: TextField(
               controller: _aramaController,
-              onChanged: (deger) {
-                setState(() {
-                  _aramaMetni = deger;
-                });
+              textInputAction: TextInputAction.search,
+              onSubmitted: (deger) {
+                if (_searchSekmesinde) SonAramalarDeposu.ekle(deger);
               },
               style: const TextStyle(fontSize: 14),
               decoration: const InputDecoration(
@@ -154,9 +189,6 @@ class _GoodreadsAnaSayfaState extends State<GoodreadsAnaSayfa> {
             GestureDetector(
               onTap: () {
                 _aramaController.clear();
-                setState(() {
-                  _aramaMetni = '';
-                });
                 FocusScope.of(context).unfocus();
               },
               child: const Icon(Icons.close, color: Colors.grey),

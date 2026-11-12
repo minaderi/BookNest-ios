@@ -27,6 +27,7 @@ class _KitapFormuSayfasiState extends State<KitapFormuSayfasi> {
   late final TextEditingController _kapak;
   late final TextEditingController _aciklama;
   late int _seciliListe;
+  String _seciliTur = ''; // boş = türü yok
 
   @override
   void initState() {
@@ -41,6 +42,7 @@ class _KitapFormuSayfasiState extends State<KitapFormuSayfasi> {
     _kapak = TextEditingController(text: mevcut?.resimYolu ?? '');
     _aciklama = TextEditingController(text: mevcut?.aciklama ?? '');
     _seciliListe = widget.listeIndex ?? 0;
+    _seciliTur = mevcut?.tur ?? '';
 
     // Kapak yolu değiştikçe önizleme güncellensin
     _kapak.addListener(() => setState(() {}));
@@ -63,6 +65,7 @@ class _KitapFormuSayfasiState extends State<KitapFormuSayfasi> {
       yazar: _yazar.text.trim(),
       resimYolu: _kapak.text.trim(),
       aciklama: _aciklama.text.trim(),
+      tur: _seciliTur,
     );
 
     final yonetici = KitapYoneticisi.instance;
@@ -122,6 +125,8 @@ class _KitapFormuSayfasiState extends State<KitapFormuSayfasi> {
               ipucu: 'assets/images/... or https://...',
             ),
             _alan(_aciklama, 'Description', satir: 5),
+            _turSecici(),
+            const SizedBox(height: 16),
             _listeSecici(),
             const SizedBox(height: 24),
             SizedBox(
@@ -172,6 +177,38 @@ class _KitapFormuSayfasiState extends State<KitapFormuSayfasi> {
                 ? '$etiket is required'
                 : null
             : null,
+      ),
+    );
+  }
+
+  Widget _turSecici() {
+    // Listede olmayan eski bir tür varsa o da seçenek olarak görünsün
+    final turler = [
+      ...kKitapTurleri,
+      if (_seciliTur.isNotEmpty && !kKitapTurleri.contains(_seciliTur))
+        _seciliTur,
+    ];
+    return InputDecorator(
+      decoration: InputDecoration(
+        labelText: 'Genre',
+        filled: true,
+        fillColor: Colors.white,
+        border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+      ),
+      child: DropdownButtonHideUnderline(
+        child: DropdownButton<String>(
+          value: _seciliTur,
+          isExpanded: true,
+          isDense: true,
+          items: [
+            const DropdownMenuItem(value: '', child: Text('No genre')),
+            for (final tur in turler)
+              DropdownMenuItem(value: tur, child: Text(tur)),
+          ],
+          onChanged: (secim) {
+            if (secim != null) setState(() => _seciliTur = secim);
+          },
+        ),
       ),
     );
   }

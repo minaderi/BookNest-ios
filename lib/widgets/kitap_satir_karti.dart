@@ -8,13 +8,16 @@ import 'raf_butonu.dart';
 // Liste detay ve arama sonuçlarında kullanılan yatay kitap kartı
 class KitapSatirKarti extends StatelessWidget {
   final KitapModel kitap;
+  // Detay sayfası açılmadan önce çalışır (ör. aramayı son aramalara kaydetmek)
+  final VoidCallback? onTap;
 
-  const KitapSatirKarti({super.key, required this.kitap});
+  const KitapSatirKarti({super.key, required this.kitap, this.onTap});
 
   @override
   Widget build(BuildContext context) {
     return GestureDetector(
       onTap: () {
+        onTap?.call();
         Navigator.push(
           context,
           MaterialPageRoute(
